@@ -1,0 +1,32 @@
+{
+  "name": "staking-pool-contract",
+  "version": "1.0.0",
+  "description": "",
+  "main": "truffle-config.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BEAST-NFT/staking-pool-contract.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/BEAST-NFT/staking-pool-contract/issues"
+  },
+  "homepage": "https://github.com/BEAST-NFT/staking-pool-contract#readme",
+  "dependencies": {
+    "@openzeppelin/contracts": "^4.5.0",
+    "@truffle/hdwallet-provider": "^2.0.3",
+    "chai": "^4.3.6",
+    "chai-as-promised": "^7.1.1",
+    "mocha": "^9.2.2",
+    "truffle-plugin-verify": "^0.5.21",
+    "web3": "^1.7.1"
+  }
+}
