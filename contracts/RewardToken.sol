@@ -7,33 +7,32 @@ import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract WATT is ERC20, Ownable, ERC20Burnable, AccessControl {
-    address private staking;   
-    mapping (address => bool) private allowed;
+    mapping (address => bool) private staking;
+    mapping (address => bool) private gaming;
     modifier onlyStaking {
-        require(staking == msg.sender, "Only staking contract can call this function");
+        require(staking[msg.sender] == true, "Only Staking contract can call this function");
         _;
     }
     modifier onlyGaming {
-        require(allowed[msg.sender]= true, "Only Gaming contract can call this function");
+        require(gaming[msg.sender] == true, "Only Gaming contract can call this function");
         _;
     }
 
     constructor() ERC20("WATT", "WATT") {
-        staking = msg.sender;       
-        allowed[msg.sender] = true;
+        staking[msg.sender]=true;       
+        gaming[msg.sender] = true;
     }
 
     function mint(address to, uint256 amount) external onlyOwner {
         _mint(to, amount);
     }
 
-    function updateStaking (address newAddress) external onlyOwner {
-        require(staking != newAddress, "Already set");
-        staking = newAddress;
+    function updateStaking (address newAddress, bool value) external onlyOwner {
+        staking[newAddress] = value;
     }
 
     function updateGaming (address newAddress, bool value) external onlyOwner {
-        allowed[newAddress] = value;
+        gaming[newAddress] = value;
     }
 
     // rewards mint function
