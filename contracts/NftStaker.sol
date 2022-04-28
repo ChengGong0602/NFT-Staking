@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 import "@openzeppelin/contracts/token/ERC1155/utils/ERC1155Receiver.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/Address.sol";
 import "./IRewardsToken.sol";
 
 abstract contract ReentrancyGuard { 
@@ -26,6 +27,7 @@ abstract contract ReentrancyGuard {
 }
 contract NftStaker is Ownable, ReentrancyGuard{
     using SafeMath for uint256;
+    using Address for address;
     IERC1155 private nft;
     IRewardsToken private rewardsToken;
     bool public canStake = false;
@@ -47,7 +49,7 @@ contract NftStaker is Ownable, ReentrancyGuard{
     uint256 public rewardsTokenAmount = 10 ether;
 
     // stake weight for tokenId
-    // rewardsTokenAmount * stakeWeight / stakedTotal
+    // rewardsTokenAmount * stakeWeight
     mapping (uint256 => uint256) public stakeWeight; // tokenId => weight, weight is in wei
 
     // stakingTime for tokenId
@@ -148,7 +150,8 @@ contract NftStaker is Ownable, ReentrancyGuard{
     }
 
     function _stake(uint256 _tokenId,uint256 _amount) internal {
-        require(canStake = true, "Staking is temporarily disabled");   
+        require(!Address.isContract(msg.sender), "Staking is not allowed for contracts");
+        require(canStake == true, "Staking is temporarily disabled");   
         require(canDeposit[_tokenId], "You can't stake for this tokenId");     
         require(nft.balanceOf(msg.sender, _tokenId) != 0, "User must be the owner of the staked nft");
         if (_tokenId == 1)
@@ -180,9 +183,7 @@ contract NftStaker is Ownable, ReentrancyGuard{
         );
 
         nft.safeTransferFrom(msg.sender, address(this), _tokenId, _amount, "");
-
         stakedTotal = stakedTotal + _amount;
-
         emit NFTDepositLog(
             newItemId,
             msg.sender,
@@ -196,30 +197,7 @@ contract NftStaker is Ownable, ReentrancyGuard{
         );
     }    
 
-    function _restake(uint256 depositId) internal {
 
-        require(depositId <= nftDeposits.length);
-        require(nftDeposits[depositId].depositOwner == msg.sender, "You can only withdraw your own deposits.");
-        require((block.timestamp - nftDeposits[depositId].depositTime) >= nftDeposits[depositId].timeLockInSeconds + stakingTime, "You can't yet unlock this deposit.  please use emergencyUnstake instead");
-        require(rewardsTokenAmount > 0, "Smart contract owner hasn't defined reward for your deposit. Please contact support team.");  
-        nftDeposits[depositId].depositTime = block.timestamp;     
-        uint256 rewardMultiplier = ((block.timestamp - nftDeposits[depositId].depositTime -nftDeposits[depositId].timeLockInSeconds) / stakingTime) * stakeWeight[nftDeposits[depositId].tokenId] / stakedTotal;
-        nftDeposits[depositId].rewardsEarned += rewardsTokenAmount * rewardMultiplier;
-
-        emit NFTDepositLog(
-            depositId,
-            msg.sender,
-            nftDeposits[depositId].tokenId,
-            nftDeposits[depositId].amount,
-            false,
-            block.timestamp,
-            minimum_stakingTime[nftDeposits[depositId].tokenId],
-            nftDeposits[depositId].rewardsEarned,
-            nftDeposits[depositId].rewardsReleased
-        );
-    }
-
-  
 
     // Unstake without caring about rewards. EMERGENCY ONLY.
     function emergencyUnstake(uint256 depositId) public {      
@@ -230,7 +208,7 @@ contract NftStaker is Ownable, ReentrancyGuard{
 
         require(nftDeposits[depositId].isWithdrawn == false, "This deposit has already been withdrawn.");
 
-        // nft.safeTransferFrom(address(this), msg.sender, nftDeposits[depositId].tokenId);
+        nft.safeTransferFrom(address(this), msg.sender, nftDeposits[depositId].tokenId, nftDeposits[depositId].amount, "");
 
         stakedTotal = stakedTotal - nftDeposits[depositId].amount;
 
@@ -256,10 +234,11 @@ contract NftStaker is Ownable, ReentrancyGuard{
         require((block.timestamp - nftDeposits[depositId].depositTime) >= nftDeposits[depositId].timeLockInSeconds + stakingTime, "You can't yet unlock this deposit.  please use emergencyUnstake instead");
         require(rewardsTokenAmount > 0, "Smart contract owner hasn't defined reward for your deposit. Please contact support team.");
         nft.safeTransferFrom(address(this), msg.sender, nftDeposits[depositId].tokenId, nftDeposits[depositId].amount, "");        
-        stakedTotal -nftDeposits[depositId].amount;
+        stakedTotal = stakedTotal - nftDeposits[depositId].amount;
         nftDeposits[depositId].isWithdrawn = true;
-        uint256 rewardMultiplier = ((block.timestamp - nftDeposits[depositId].depositTime -nftDeposits[depositId].timeLockInSeconds) / stakingTime) * stakeWeight[nftDeposits[depositId].tokenId] / stakedTotal;
+        uint256 rewardMultiplier = ((block.timestamp - nftDeposits[depositId].depositTime -nftDeposits[depositId].timeLockInSeconds) / stakingTime) * stakeWeight[nftDeposits[depositId].tokenId] * nftDeposits[depositId].amount;
         nftDeposits[depositId].rewardsEarned += rewardsTokenAmount * rewardMultiplier;
+
         emit NFTWithdrawLog(
             depositId,
             msg.sender,
@@ -270,15 +249,67 @@ contract NftStaker is Ownable, ReentrancyGuard{
             nftDeposits[depositId].rewardsEarned,
             nftDeposits[depositId].rewardsReleased
         );
-    }
-
-    function withdrawRewards(uint256 depositId) public nonReentrant{
-        require(depositId <= nftDeposits.length);
-        require(nftDeposits[depositId].rewardsEarned  > 0, "Amound should be greater than zero");
         rewardsToken.rewardsMint(msg.sender, nftDeposits[depositId].rewardsEarned );
         nftDeposits[depositId].rewardsReleased += nftDeposits[depositId].rewardsEarned;
         nftDeposits[depositId].rewardsEarned = 0;
+        emit RewardsWithdrawLog(
+            depositId,
+            msg.sender,
+            nftDeposits[depositId].tokenId,
+            nftDeposits[depositId].amount,
+            block.timestamp,
+            0,
+            nftDeposits[depositId].rewardsReleased
+        );
+    }
 
+    function unstakeAll() public {
+        for(uint256 i = 0; i < nftDeposits.length; i++) {
+            if(nftDeposits[i].depositOwner == msg.sender && nftDeposits[i].isWithdrawn == false) {
+                nft.safeTransferFrom(address(this), msg.sender, nftDeposits[i].tokenId, nftDeposits[i].amount, "");        
+                stakedTotal = stakedTotal - nftDeposits[i].amount;
+                nftDeposits[i].isWithdrawn = true;
+                uint256 rewardMultiplier = ((block.timestamp - nftDeposits[i].depositTime -nftDeposits[i].timeLockInSeconds) / stakingTime) * stakeWeight[nftDeposits[i].tokenId] * nftDeposits[i].amount;
+                nftDeposits[i].rewardsEarned += rewardsTokenAmount * rewardMultiplier;
+                emit NFTWithdrawLog(
+                    i,
+                    msg.sender,
+                    nftDeposits[i].tokenId,
+                    nftDeposits[i].amount,
+                    block.timestamp,
+                    false,
+                    nftDeposits[i].rewardsEarned,
+                    nftDeposits[i].rewardsReleased
+                );
+                rewardsToken.rewardsMint(msg.sender, nftDeposits[i].rewardsEarned );
+                nftDeposits[i].rewardsReleased += nftDeposits[i].rewardsEarned;
+                nftDeposits[i].rewardsEarned = 0;
+                emit RewardsWithdrawLog(
+                    i,
+                    msg.sender,
+                    nftDeposits[i].tokenId,
+                    nftDeposits[i].amount,
+                    block.timestamp,
+                    0,
+                    nftDeposits[i].rewardsReleased
+                );
+            }
+        }
+    }
+
+
+    function withdrawRewards(uint256 depositId) public nonReentrant{            
+        require(depositId <= nftDeposits.length, "Deposit id is not valid");
+        require(nftDeposits[depositId].isWithdrawn == false, "This deposit has already been withdrawn.");
+        require(nftDeposits[depositId].depositOwner == msg.sender, "You can only withdraw your own deposits.");
+        require((block.timestamp - nftDeposits[depositId].depositTime) >= nftDeposits[depositId].timeLockInSeconds + stakingTime, "You can't yet unlock this deposit.  please use emergencyUnstake instead");
+        require(rewardsTokenAmount > 0, "Smart contract owner hasn't defined reward for your deposit. Please contact support team.");
+        uint256 rewardMultiplier = ((block.timestamp - nftDeposits[depositId].depositTime -nftDeposits[depositId].timeLockInSeconds) / stakingTime) * stakeWeight[nftDeposits[depositId].tokenId] * nftDeposits[depositId].amount;
+        uint256 rewardAmount = nftDeposits[depositId].rewardsEarned + rewardsTokenAmount * rewardMultiplier;  
+        rewardsToken.rewardsMint(msg.sender, rewardAmount );
+        nftDeposits[depositId].depositTime = block.timestamp;   
+        nftDeposits[depositId].rewardsReleased += rewardAmount;
+        nftDeposits[depositId].rewardsEarned = 0;
         emit RewardsWithdrawLog(
             depositId,
             msg.sender,
@@ -292,8 +323,22 @@ contract NftStaker is Ownable, ReentrancyGuard{
 
     function withdrawAllRewards() public nonReentrant{
         for(uint256 i = 0; i < nftDeposits.length; i++) {
-            if(nftDeposits[i].rewardsEarned > 0 && nftDeposits[i].depositOwner == msg.sender) {
-                withdrawRewards(i);
+            uint256 rewardMultiplier = ((block.timestamp - nftDeposits[i].depositTime -nftDeposits[i].timeLockInSeconds) / stakingTime) * stakeWeight[nftDeposits[i].tokenId] * nftDeposits[i].amount;
+            if(nftDeposits[i].depositOwner == msg.sender && rewardMultiplier > 0 &&nftDeposits[i].isWithdrawn == false) {
+                uint256 rewardAmount = nftDeposits[i].rewardsEarned + rewardsTokenAmount * rewardMultiplier;  
+                rewardsToken.rewardsMint(msg.sender, rewardAmount );
+                nftDeposits[i].depositTime = block.timestamp;   
+                nftDeposits[i].rewardsReleased += rewardAmount;
+                nftDeposits[i].rewardsEarned = 0;
+                emit RewardsWithdrawLog(
+                    i,
+                    msg.sender,
+                    nftDeposits[i].tokenId,
+                    nftDeposits[i].amount,
+                    block.timestamp,
+                    0,
+                    nftDeposits[i].rewardsReleased
+                );
             }
         }
     }
@@ -311,13 +356,17 @@ contract NftStaker is Ownable, ReentrancyGuard{
     function getRewardsAmount(uint256 depositId) external view returns (uint256, uint256) {
         require(depositId <= nftDeposits.length, "Deposit id is not valid");        
         require(rewardsTokenAmount > 0, "Smart contract owner hasn't defined reward for this depositId. Please contact support team.");  
-        if ((block.timestamp - nftDeposits[depositId].depositTime) >= nftDeposits[depositId].timeLockInSeconds+stakingTime) {
-            uint256 rewardMultiplier = ((block.timestamp - nftDeposits[depositId].depositTime -nftDeposits[depositId].timeLockInSeconds) / stakingTime) * stakeWeight[nftDeposits[depositId].tokenId] / stakedTotal;
-            uint256 rewardAmount = nftDeposits[depositId].rewardsEarned + rewardsTokenAmount * rewardMultiplier;          
-            return (rewardAmount, nftDeposits[depositId].rewardsReleased);
+        if (nftDeposits[depositId].isWithdrawn == true) {
+            return (0, nftDeposits[depositId].rewardsReleased);
         } else {
-            return (nftDeposits[depositId].rewardsEarned, nftDeposits[depositId].rewardsReleased);
-        }
+            if ((block.timestamp - nftDeposits[depositId].depositTime) >= nftDeposits[depositId].timeLockInSeconds+stakingTime) {
+                uint256 rewardMultiplier = ((block.timestamp - nftDeposits[depositId].depositTime -nftDeposits[depositId].timeLockInSeconds) / stakingTime) * stakeWeight[nftDeposits[depositId].tokenId] * nftDeposits[depositId].amount;
+                uint256 rewardAmount = nftDeposits[depositId].rewardsEarned + rewardsTokenAmount * rewardMultiplier;          
+                return (rewardAmount, nftDeposits[depositId].rewardsReleased);
+            } else {
+                return (nftDeposits[depositId].rewardsEarned, nftDeposits[depositId].rewardsReleased);
+            }
+        }        
     }
 
 
@@ -326,14 +375,18 @@ contract NftStaker is Ownable, ReentrancyGuard{
         uint256 totalRewardsReleased = 0;
         for (uint256 i = 0; i < nftDeposits.length; i++) {
             if (nftDeposits[i].depositOwner==_stakerAddres){
-                if ((block.timestamp - nftDeposits[i].depositTime) >= nftDeposits[i].timeLockInSeconds+stakingTime) {
-                    uint256 rewardMultiplier = ((block.timestamp - nftDeposits[i].depositTime- nftDeposits[i].timeLockInSeconds) / stakingTime) * stakeWeight[nftDeposits[i].tokenId] / stakedTotal;
-                    uint256 rewardAmount = nftDeposits[i].rewardsEarned + rewardsTokenAmount * rewardMultiplier;
-                    totalRewardsEarned += rewardAmount;
-                    totalRewardsReleased += nftDeposits[i].rewardsReleased;
+                 if (nftDeposits[i].isWithdrawn == true) {                    
+                    totalRewardsReleased += nftDeposits[i].rewardsReleased;                    
                 } else {
-                    totalRewardsEarned += nftDeposits[i].rewardsEarned;
-                    totalRewardsReleased += nftDeposits[i].rewardsReleased;
+                    if ((block.timestamp - nftDeposits[i].depositTime) >= nftDeposits[i].timeLockInSeconds+stakingTime) {
+                        uint256 rewardMultiplier = ((block.timestamp - nftDeposits[i].depositTime- nftDeposits[i].timeLockInSeconds) / stakingTime) * stakeWeight[nftDeposits[i].tokenId] * nftDeposits[i].amount;
+                        uint256 rewardAmount = nftDeposits[i].rewardsEarned + rewardsTokenAmount * rewardMultiplier;
+                        totalRewardsEarned += rewardAmount;
+                        totalRewardsReleased += nftDeposits[i].rewardsReleased;
+                    } else {
+                        totalRewardsEarned += nftDeposits[i].rewardsEarned;
+                        totalRewardsReleased += nftDeposits[i].rewardsReleased;
+                    }
                 }
             }
         }

@@ -24,4 +24,6 @@ Depositid 0 don't get any rewards even after depositid 1 is unstaked
 #### Deployed smart contracts for testing purposes
 - NFT contract: https://mumbai.polygonscan.com/address/0x1a3d0451f48ebef398dd4c134ae60846274b7ce0
 - Reward contract:https://mumbai.polygonscan.com/address/0xeba5ebe8cb3af119cd21101591c8c1ce9804fa0a
-- NFT staking contract: https://mumbai.polygonscan.com/address/0x14cE9DE7309D8edcE9352db3d17b848772098835
+- NFT staking contract: https://mumbai.polygonscan.com/address/0x2f1359ea349C83fA23E24e94221b9D25f5A657a3    
+
+Rewards amount setting: 694444444444444
